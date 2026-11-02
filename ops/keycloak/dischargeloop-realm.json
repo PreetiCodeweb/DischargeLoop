@@ -1,0 +1,86 @@
+{
+  "realm": "dischargeloop",
+  "displayName": "DischargeLoop",
+  "enabled": true,
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "bruteForceProtected": true,
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "requiredActions": [
+    { "alias": "CONFIGURE_TOTP", "name": "Configure OTP", "enabled": true, "defaultAction": true }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "admission" },
+      { "name": "clinical" },
+      { "name": "coordinator" },
+      { "name": "pharmacy" },
+      { "name": "billing" },
+      { "name": "transport" },
+      { "name": "housekeeping" },
+      { "name": "bed_manager" },
+      { "name": "hospital:wide" },
+      { "name": "admin", "composite": true, "composites": { "realm": ["hospital:wide"] } },
+      { "name": "auditor", "composite": true, "composites": { "realm": ["hospital:wide"] } }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "dischargeloop-web",
+      "name": "DischargeLoop Web",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "implicitFlowEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:5173/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "dischargeloop-api-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "dischargeloop-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false"
+          }
+        },
+        {
+          "name": "ward-ids",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "ward_ids",
+            "claim.name": "ward_ids",
+            "jsonType.label": "String",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "dischargeloop-api",
+      "name": "DischargeLoop API",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "bearerOnly": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false
+    }
+  ]
+}

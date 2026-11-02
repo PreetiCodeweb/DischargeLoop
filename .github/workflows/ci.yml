@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dischargeloop
+          POSTGRES_PASSWORD: ci-postgres-password
+          POSTGRES_DB: dischargeloop
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dischargeloop -d dischargeloop"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/api/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - name: Create least-privilege database roles
+        run: |
+          PGPASSWORD=ci-postgres-password psql -h 127.0.0.1 -U dischargeloop -d dischargeloop <<'SQL'
+          CREATE ROLE dischargeloop_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+          CREATE ROLE dischargeloop_migrator LOGIN PASSWORD 'ci-migration-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
+          CREATE SCHEMA dischargeloop AUTHORIZATION dischargeloop_migrator;
+          GRANT CONNECT ON DATABASE dischargeloop TO dischargeloop_app, dischargeloop_migrator;
+          GRANT USAGE ON SCHEMA dischargeloop TO dischargeloop_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE dischargeloop_migrator IN SCHEMA dischargeloop GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dischargeloop_app;
+          ALTER DEFAULT PRIVILEGES FOR ROLE dischargeloop_migrator IN SCHEMA dischargeloop GRANT USAGE, SELECT ON SEQUENCES TO dischargeloop_app;
+          SQL
+      - name: Apply schema
+        env:
+          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
+        run: npm run migrate
+      - name: Verify empty-schema rollback and reapply
+        env:
+          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
+        run: npm run migrate:down && npm run migrate
+      - name: Run API tests
+        env:
+          DATABASE_URL: postgresql://dischargeloop_app:ci-app-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
+          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
+        run: npm test
+      - run: npm run build
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: npm run build

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120" role="img" aria-labelledby="title desc">
+  <title id="title">DischargeLoop</title>
+  <desc id="desc">DischargeLoop healthcare coordination</desc>
+  <defs>
+    <linearGradient id="loop" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#12a89d"/><stop offset="1" stop-color="#2478b8"/></linearGradient>
+  </defs>
+  <g transform="translate(8 8)">
+    <circle cx="52" cy="52" r="43" fill="#e8f7f5"/>
+    <path d="M25 52a27 27 0 0 1 46-19l8 8M79 52a27 27 0 0 1-46 19l-8-8" fill="none" stroke="url(#loop)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M52 39v26M39 52h26" stroke="#176e9d" stroke-width="7" stroke-linecap="round"/>
+  </g>
+  <text x="116" y="76" font-family="Arial, Helvetica, sans-serif" font-size="43" font-weight="700" letter-spacing="-1.5" fill="#17324d">Discharge<tspan fill="#168f91">Loop</tspan></text>
+</svg>

@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Hospital Analytics{% endblock %}
+
+{% block extra_css %}
+<style>
+  .admin-dashboard-heading {
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+
+  .admin-dashboard-heading-copy {
+    min-width: 0;
+  }
+
+  .admin-dashboard-value {
+    font-size: clamp(1.25rem, 3vw, 1.75rem);
+    overflow-wrap: anywhere;
+  }
+
+  .admin-dashboard-list-item {
+    gap: 0.75rem;
+  }
+
+  .admin-dashboard-list-item > :first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid py-3">
+  <div class="admin-dashboard-heading d-flex justify-content-between align-items-center mb-3">
+    <div class="admin-dashboard-heading-copy">
+      <h4 class="mb-0"><i class="fas fa-chart-line text-primary me-2"></i>Hospital Analytics</h4>
+      <small class="text-muted">Welcome, {{ user.get_full_name }} - live hospital overview</small>
+    </div>
+    <a href="{% url 'create_user' %}" class="btn btn-primary btn-sm">Add User</a>
+  </div>
+  <div class="row g-3 mb-2">
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-primary"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Patients</div><div class="h3 mb-0 admin-dashboard-value">{{ patients_total }}</div>
+      <small class="text-success">+{{ patients_new_30d }} in 30 days</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-info"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Active Admissions</div><div class="h3 mb-0 admin-dashboard-value">{{ admissions.active }}</div>
+      <small class="text-muted">{{ admissions.requests_pending }} pending request(s)</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-success"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Appointments Today</div><div class="h3 mb-0 admin-dashboard-value">{{ appointments.today }}</div>
+      <small class="text-muted">{{ appointments.upcoming }} upcoming</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-warning"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Bed Occupancy</div><div class="h3 mb-0 admin-dashboard-value">{{ admissions.occupancy_rate }}%</div>
+      <small class="text-muted">{{ admissions.beds_occupied }}/{{ admissions.beds_total }} beds</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-success"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Pharmacy Revenue</div><div class="h3 mb-0 admin-dashboard-value">Rs {{ pharmacy.revenue_total|floatformat:0 }}</div>
+      <small class="text-muted">Rs {{ pharmacy.revenue_30d|floatformat:0 }}/30d - {{ pharmacy.sales_count }} sales</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-info"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Drug Requests</div><div class="h3 mb-0 admin-dashboard-value">{{ pharmacy.drug_requests_pending }}</div>
+      <small class="text-muted">pending - {{ pharmacy.drug_requests_dispensed }} dispensed</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-danger"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Low Stock</div><div class="h3 mb-0 admin-dashboard-value">{{ pharmacy.low_stock }}</div>
+      <small class="text-muted">{{ pharmacy.expired }} expired - {{ pharmacy.inventory_low_stock }} equip.</small></div></div></div>
+    <div class="col-6 col-md-3"><div class="card shadow-sm h-100 border-start border-4 border-secondary"><div class="card-body py-3">
+      <div class="text-muted small text-uppercase">Pending Inquiries</div><div class="h3 mb-0 admin-dashboard-value">{{ front_desk.appointment_inquiries_pending|add:front_desk.contact_inquiries_pending }}</div>
+      <small class="text-muted">{{ front_desk.leave_requests_pending }} leave request(s)</small></div></div></div>
+  </div>
+  <div class="row g-3">
+    <div class="col-lg-6"><div class="card shadow-sm h-100">
+      <div class="card-header bg-light"><strong>Bed Occupancy by Floor</strong></div>
+      <div class="card-body">
+        {% for f in admissions.by_floor %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small"><span>Floor {{ f.floor }} - {{ f.department }}</span><span>{{ f.occupied }}/{{ f.total }} ({{ f.rate }}%)</span></div>
+          <div class="progress" style="height: 14px;"><div class="progress-bar {% if f.rate >= 90 %}bg-danger{% elif f.rate >= 60 %}bg-warning{% else %}bg-success{% endif %}" role="progressbar" style="width: {{ f.rate }}%;"></div></div>
+        </div>
+        {% endfor %}
+      </div></div></div>
+    <div class="col-lg-6">
+      <div class="card shadow-sm mb-3">
+        <div class="card-header bg-light"><strong>Appointments by Status</strong> <span class="text-muted small">({{ appointments.total }} total)</span></div>
+        <div class="card-body">
+          {% for s in appointments.by_status %}
+          <div class="mb-2"><div class="d-flex justify-content-between small"><span>{{ s.status }}</span><span>{{ s.count }}</span></div>
+            <div class="progress" style="height: 12px;"><div class="progress-bar bg-success" role="progressbar" style="width: {% widthratio s.count appointments.total 100 %}%;"></div></div></div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="card shadow-sm">
+        <div class="card-header bg-light"><strong>Staff by Role</strong> <span class="text-muted small">({{ total_staff }} total)</span></div>
+        <div class="card-body">
+          {% for r in staff_by_role %}
+          <div class="mb-2"><div class="d-flex justify-content-between small"><span>{{ r.role }}</span><span>{{ r.count }}</span></div>
+            <div class="progress" style="height: 12px;"><div class="progress-bar bg-primary" role="progressbar" style="width: {% widthratio r.count total_staff 100 %}%;"></div></div></div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="row g-3 mt-1">
+    <div class="col-lg-6"><div class="card shadow-sm h-100">
+      <div class="card-header bg-light"><strong>Recent Admissions</strong></div>
+      <ul class="list-group list-group-flush">
+        {% for a in recent_admissions %}
+        <li class="list-group-item d-flex justify-content-between admin-dashboard-list-item"><span>{{ a.patient.full_name }} - {{ a.bed.room.room_number }}</span><small class="text-muted text-nowrap">{{ a.admission_date|date:"M d, H:i" }}</small></li>
+        {% empty %}<li class="list-group-item text-muted text-center">No admissions yet.</li>{% endfor %}
+      </ul></div></div>
+    <div class="col-lg-6"><div class="card shadow-sm h-100">
+      <div class="card-header bg-light"><strong>Recent Pharmacy Sales</strong></div>
+      <ul class="list-group list-group-flush">
+        {% for s in recent_sales %}
+        <li class="list-group-item d-flex justify-content-between admin-dashboard-list-item"><span>{{ s.invoice_number|default:"(draft)" }}{% if s.patient %} - {{ s.patient.full_name }}{% endif %}</span><small class="text-muted text-nowrap">Rs {{ s.total|floatformat:0 }} - {{ s.sale_date|date:"M d, H:i" }}</small></li>
+        {% empty %}<li class="list-group-item text-muted text-center">No sales yet.</li>{% endfor %}
+      </ul></div></div>
+  </div>
+  <div class="row g-2 mt-3">
+    <div class="col-6 col-md-4 col-xl-2"><a href="{% url 'user_list' %}" class="btn btn-outline-primary w-100">Users</a></div>
+    <div class="col-6 col-md-4 col-xl-2"><a href="{% url 'appointment_list' %}" class="btn btn-outline-success w-100">Appointments</a></div>
+    <div class="col-6 col-md-4 col-xl-2"><a href="{% url 'patient_list' %}" class="btn btn-outline-info w-100">Patients</a></div>
+    <div class="col-6 col-md-4 col-xl-2"><a href="{% url 'admission_list' %}" class="btn btn-outline-secondary w-100">Admissions</a></div>
+    <div class="col-6 col-md-4 col-xl-2"><a href="{% url 'medicine_list' %}" class="btn btn-outline-warning w-100">Pharmacy</a></div>
+    <div class="col-6 col-md-4 col-xl-2"><a href="{% url 'admin_leave_requests' %}" class="btn btn-outline-danger w-100">Leave</a></div>
+  </div>
+</div>
+{% endblock %}

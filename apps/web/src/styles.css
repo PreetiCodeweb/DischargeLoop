@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root { font-family: 'DM Sans', sans-serif; color: #17324d; background: #f3f7fb; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+.shell { width: min(1120px, calc(100% - 48px)); margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 28px 0; border-bottom: 1px solid #dfe8f0; }
+.brand { display: inline-flex; align-items: center; gap: 11px; text-decoration: none; color: #17324d; font: 800 21px Manrope, sans-serif; letter-spacing: -.7px; }
+.brand-mark { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: white; background: linear-gradient(145deg, #19aaa0, #247db7); font: 700 27px 'DM Sans', sans-serif; }
+.brand-accent { color: #159a9b; }
+.site-label { color: #70859a; font-size: 13px; font-weight: 600; }
+.welcome { flex: 1; max-width: 720px; padding: clamp(80px, 14vh, 150px) 0 72px; }
+.eyebrow { color: #168f91; font-size: 12px; letter-spacing: 1.8px; font-weight: 700; }
+h1 { max-width: 670px; margin: 18px 0; font: 800 clamp(38px, 6vw, 62px)/1.1 Manrope, sans-serif; letter-spacing: -2.8px; }
+.intro { max-width: 530px; color: #61778d; font-size: 18px; line-height: 1.7; }
+.empty-state { display: flex; align-items: center; gap: 16px; margin-top: 42px; padding: 20px 22px; background: white; border: 1px solid #e1e9f0; border-radius: 16px; box-shadow: 0 12px 32px #17324d0a; }
+.empty-icon { flex: 0 0 42px; display: grid; place-items: center; width: 42px; height: 42px; background: #e7f6f4; color: #168f91; border-radius: 13px; font-size: 22px; }
+.empty-state strong { font-size: 15px; }
+.empty-state p { margin: 5px 0 0; color: #71869a; font-size: 14px; }
+footer { padding: 24px 0; color: #8293a3; font-size: 12px; border-top: 1px solid #dfe8f0; }
+@media (max-width: 600px) { .shell { width: min(100% - 32px, 1120px); } .topbar { padding: 20px 0; } .site-label { display: none; } .welcome { padding-top: 80px; } h1 { letter-spacing: -1.7px; } .intro { font-size: 16px; } .empty-state { align-items: flex-start; padding: 18px; } }
