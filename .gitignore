@@ -36,6 +36,9 @@ env/
 instance/
 *.sqlite3
 *.db
+media/health_records/
+media/patients/
+media/profile_pics/
 
 # Django collectstatic output (regenerated at build time)
 staticfiles/
