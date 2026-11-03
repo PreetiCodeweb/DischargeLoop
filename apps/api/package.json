@@ -9,6 +9,7 @@
     "migrate": "node scripts/migrate.mjs",
     "migrate:down": "node scripts/migrate-down.mjs",
     "expire:reservations": "node dist/expire-reservations.js",
+    "ttl:cleanup": "node dist/ttl-cleanup.js",
     "test": "vitest run --maxWorkers=1"
   },
   "dependencies": {

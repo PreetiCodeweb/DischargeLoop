@@ -88,6 +88,21 @@ services:
       postgres:
         condition: service_healthy
 
+  ttl-cleanup:
+    image: node:24-alpine
+    working_dir: /workspace
+    command: sh -c "npm ci && npm run migrate && npm run build && npm run ttl:cleanup"
+    environment:
+      DATABASE_URL: postgresql://${APP_DB_USER:-dischargeloop_app}:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-dischargeloop}?options=-csearch_path%3Ddischargeloop
+      MIGRATION_DATABASE_URL: postgresql://${MIGRATION_DB_USER:-dischargeloop_migrator}:${MIGRATION_DB_PASSWORD:?Set MIGRATION_DB_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-dischargeloop}?options=-csearch_path%3Ddischargeloop
+    volumes:
+      - ../apps/api:/workspace
+      - ../db/migrations:/db/migrations:ro
+      - api_node_modules:/workspace/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   web:
     image: node:24-alpine
     working_dir: /workspace

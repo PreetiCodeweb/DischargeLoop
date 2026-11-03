@@ -2,23 +2,13 @@ import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { DomainError } from '../domain/domain-error';
-import { assertBedTransition, type BedState } from '../domain/bed-state';
+import { assertBedTransition, type BedState, type BedReasonCode } from '../domain/bed-state';
 import { newId } from '../domain/ids';
 import type { Actor } from '../auth/auth.types';
 import { hasHospitalWideScope } from '../auth/oidc.guard';
 import { UnitOfWork } from '../database/unit-of-work';
 
 export const PG_POOL = 'PG_POOL';
-
-export type BedReasonCode =
-  | 'RESERVATION_REQUESTED'
-  | 'RESERVATION_CANCELLED'
-  | 'RESERVATION_EXPIRED'
-  | 'ADMISSION_CONFIRMED'
-  | 'CLINICAL_BLOCK'
-  | 'CLINICAL_UNBLOCK'
-  | 'MAINTENANCE_STARTED'
-  | 'MAINTENANCE_COMPLETED';
 
 interface ReservationInput {
   bedId: string;
