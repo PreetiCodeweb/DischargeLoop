@@ -11,6 +11,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { validate as isUuid } from 'uuid';
 import { REQUIRED_ROLES } from './roles.decorator';
 import type { Actor, AuthenticatedRequest } from './auth.types';
+import { DEV_AUDIENCE, DEV_ISSUER, DEV_SECRET, isDevAuthEnabled } from './dev-auth';
 
 const HOSPITAL_WIDE_ROLE = 'admin';
 
@@ -24,7 +25,8 @@ export class OidcGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (!this.issuer || !this.jwks || !this.audience) {
+    const devMode = isDevAuthEnabled();
+    if (!devMode && (!this.issuer || !this.jwks || !this.audience)) {
       throw new ServiceUnavailableException('Identity provider is not configured');
     }
 
@@ -37,7 +39,9 @@ export class OidcGuard implements CanActivate {
 
     let payload;
     try {
-      ({ payload } = await jwtVerify(token, this.jwks, { issuer: this.issuer, audience: this.audience }));
+      ({ payload } = devMode
+        ? await jwtVerify(token, new TextEncoder().encode(DEV_SECRET), { issuer: DEV_ISSUER, audience: DEV_AUDIENCE })
+        : await jwtVerify(token, this.jwks!, { issuer: this.issuer, audience: this.audience }));
     } catch {
       throw new UnauthorizedException('Invalid access token');
     }
