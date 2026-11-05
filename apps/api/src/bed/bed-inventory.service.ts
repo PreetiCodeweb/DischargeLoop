@@ -3,6 +3,8 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, PoolClient } from 'pg';
 import { DomainError } from '../domain/domain-error';
 import { assertBedTransition, type BedState, type BedReasonCode } from '../domain/bed-state';
+
+export type { BedReasonCode } from '../domain/bed-state';
 import { newId } from '../domain/ids';
 import type { Actor } from '../auth/auth.types';
 import { hasHospitalWideScope } from '../auth/oidc.guard';

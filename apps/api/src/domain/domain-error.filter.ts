@@ -26,7 +26,11 @@ export class DomainErrorFilter implements ExceptionFilter {
           : status === 403 ? 'FORBIDDEN'
             : status === 404 ? 'NOT_FOUND'
               : status === 400 ? 'INVALID_REQUEST' : 'REQUEST_FAILED';
-    } else if (isDatabaseUnavailable(exception)) {
+    } else {
+      console.error('[unhandled]', exception);
+    }
+
+    if (status === 500 && isDatabaseUnavailable(exception)) {
       status = 503;
       title = 'Current state is unknown';
       code = 'STATE_UNKNOWN';

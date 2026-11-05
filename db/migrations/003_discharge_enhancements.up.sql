@@ -226,12 +226,12 @@ BEGIN
   END IF;
 
   -- Evaluate Optimistic Concurrency Checks
-  IF NEW.version_id <> OLD.version_id + 1 THEN
+  IF NEW.version <> OLD.version + 1 THEN
     RAISE EXCEPTION 'Version mismatch error. Record was altered by another process.';
   END IF;
 
   -- Extract encounter and bed information
-  SELECT encounter_id INTO assoc_encounter_id FROM encounter WHERE id = NEW.encounter_id;
+  SELECT id INTO assoc_encounter_id FROM encounter WHERE id = NEW.encounter_id;
   SELECT bed_id INTO assoc_bed_id FROM encounter WHERE id = NEW.encounter_id;
 
   -- SCENARIO: Edge case rollback when discharge is marked 'CANCELLED_REVERSED' (e.g., 2 PM clinical fever)
@@ -267,7 +267,7 @@ BEGIN
     -- Fire Domain Outbox Alert for Reversal
     INSERT INTO outbox (id, aggregate_type, aggregate_id, event_type, payload, headers, occurred_at)
     VALUES (
-      uuid_generate_v4(),
+      gen_random_uuid(),
       'discharge',
       NEW.id,
       'DischargeReversed',
@@ -288,14 +288,14 @@ BEGIN
       before_state, after_state, reason_code, correlation_id, request_id, occurred_at
     )
     VALUES (
-      uuid_generate_v4(),
-      'SYSTEM',
-      'SYSTEM',
+      gen_random_uuid(),
+      '00000000-0000-7000-8000-000000000001',
+      'system',
       'discharge.reversed',
       'discharge',
       NEW.id,
-      jsonb_build_object('state', OLD.state::text, 'version', OLD.version_id),
-      jsonb_build_object('state', NEW.state::text, 'version', NEW.version_id),
+      jsonb_build_object('state', OLD.state::text, 'version', OLD.version),
+      jsonb_build_object('state', NEW.state::text, 'version', NEW.version),
       'DISCHARGE_CANCELLED_REVERSED',
       'discharge-reversal',
       'discharge-reversal',
@@ -315,7 +315,7 @@ BEGIN
     IF assoc_bed_id IS NOT NULL THEN
       UPDATE bed
       SET state = 'CLEANING',
-          state_reason_code = 'ADMISSION_CONFIRMED',
+          state_reason_code = 'DISCHARGE_PENDING',
           version = version + 1,
           updated_at = NOW()
       WHERE id = assoc_bed_id;
@@ -324,7 +324,7 @@ BEGIN
     -- Fire Domain Outbox Departure
     INSERT INTO outbox (id, aggregate_type, aggregate_id, event_type, payload, headers, occurred_at)
     VALUES (
-      uuid_generate_v4(),
+      gen_random_uuid(),
       'discharge',
       NEW.id,
       'PatientDeparted',

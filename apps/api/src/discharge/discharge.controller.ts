@@ -13,6 +13,7 @@ import { DischargeService } from './discharge.service';
 import { OidcGuard } from '../auth/oidc.guard';
 import { Roles } from '../auth/roles.decorator';
 import { DomainError } from '../domain/domain-error';
+import type { DischargeReasonCode, DischargeState } from '../domain/discharge-state';
 import type { Actor, AuthenticatedRequest } from '../auth/auth.types';
 
 const DISCHARGE_ROLES = ['clinical', 'coordinator', 'admin'];
@@ -31,12 +32,13 @@ export class DischargeController {
   ) {
     const input = this.body(body);
     const actor = this.actor(request);
-    return this.dischargeService.initiateDischarge(actor, {
+    const result = await this.dischargeService.initiateDischarge(actor, {
       encounterId: this.string(input.encounterId, 'encounterId'),
-      initiatedBy: this.string(input.initiatedBy, 'initiatedBy'),
+      initiatedBy: input.initiatedBy === undefined ? undefined : this.string(input.initiatedBy, 'initiatedBy'),
       idempotencyKey: this.header(request, 'idempotency-key'),
       correlationId: this.header(request, 'x-correlation-id'),
     });
+    return result.body;
   }
 
   @Patch(':id')
@@ -57,14 +59,15 @@ export class DischargeController {
       throw new DomainError('SAFETY_CRITICAL_OFFLINE_BLOCKED', 'Critical discharge state changes cannot be queued while offline', 409);
     }
 
-    return this.dischargeService.updateDischargeState(actor, {
+    const result = await this.dischargeService.updateDischargeState(actor, {
       dischargeId,
-      targetState: this.string(input.targetState, 'targetState'),
-      reasonCode: input.reasonCode as string | undefined,
+      targetState: this.string(input.targetState, 'targetState') as DischargeState,
+      reasonCode: input.reasonCode as DischargeReasonCode | undefined,
       reversalReason: input.reversalReason as string | undefined,
       idempotencyKey: this.header(request, 'idempotency-key'),
       correlationId: this.header(request, 'x-correlation-id'),
     });
+    return result.body;
   }
 
   private actor(request: AuthenticatedRequest): Actor {

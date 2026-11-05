@@ -11,7 +11,7 @@ export const PG_POOL = 'PG_POOL';
 
 interface InitiateDischargeInput {
   encounterId: string;
-  initiatedBy: string;
+  initiatedBy?: string;
   idempotencyKey: string;
   correlationId: string;
 }
@@ -68,7 +68,7 @@ export class DischargeService {
         `INSERT INTO dischargeloop.discharge
            (id, encounter_id, state, initiated_by, initiated_at, version, created_at, updated_at)
          VALUES ($1, $2, 'INITIATED', $3, $4, 1, $4, $4)`,
-        [dischargeId, input.encounterId, input.initiatedBy, now],
+        [dischargeId, input.encounterId, input.initiatedBy ?? actor.id, now],
       );
 
       // Fire outbox event
@@ -78,7 +78,7 @@ export class DischargeService {
         [
           newId(),
           dischargeId,
-          JSON.stringify({ dischargeId, encounterId: input.encounterId, initiatedBy: input.initiatedBy }),
+          JSON.stringify({ dischargeId, encounterId: input.encounterId, initiatedBy: input.initiatedBy ?? actor.id }),
           JSON.stringify({ correlationId: input.correlationId }),
           now,
         ],
@@ -105,7 +105,7 @@ export class DischargeService {
 
       // Lock discharge record
       const dischargeResult = await client.query(
-        `SELECT id, encounter_id, state, version_id FROM dischargeloop.discharge WHERE id = $1 FOR UPDATE`,
+        `SELECT id, encounter_id, state, version FROM dischargeloop.discharge WHERE id = $1 FOR UPDATE`,
         [input.dischargeId],
       );
       const discharge = dischargeResult.rows[0];
@@ -125,13 +125,24 @@ export class DischargeService {
       }
 
       const now = new Date();
-      const updates: string[] = ['state = $2', 'version_id = version_id + 1', 'updated_at = $3'];
+      const updates: string[] = ['state = $2', 'version = version + 1', 'updated_at = $3'];
       const params: unknown[] = [input.dischargeId, input.targetState, now];
       let paramIndex = 4;
 
       if (input.reasonCode) {
         updates.push(`cancelled_reason_code = $${paramIndex++}`);
         params.push(input.reasonCode);
+      }
+
+      if (input.targetState === 'READY_TO_DEPART') {
+        const open = await client.query(
+          `SELECT count(*)::int AS open FROM dischargeloop.task
+           WHERE discharge_id = $1 AND blocking = true AND status IN ('OPEN','CLAIMED')`,
+          [input.dischargeId],
+        );
+        if ((open.rows[0]?.open ?? 0) > 0) {
+          throw new DomainError('TASKS_INCOMPLETE', 'All blocking tasks must be completed before departure', 409);
+        }
       }
 
       if (input.targetState === 'MEDICALLY_CLEARED') {
@@ -154,13 +165,72 @@ export class DischargeService {
         params.push('DISCHARGE_CANCELLED_REVERSED');
       }
 
-      const query = `UPDATE dischargeloop.discharge SET ${updates.join(', ')} WHERE id = $1 AND version_id = $${paramIndex}`;
-      params.push(discharge.version_id);
+      const query = `UPDATE dischargeloop.discharge SET ${updates.join(', ')} WHERE id = $1 AND version = $${paramIndex}`;
+      params.push(discharge.version);
 
       const result = await client.query(query, params);
       if (result.rowCount !== 1) {
         throw new DomainError('DISCHARGE_VERSION_CONFLICT', 'Discharge changed during this operation', 409);
       }
+
+      if (input.targetState === 'TASKS_PENDING') {
+        const defaults = [
+          ['medication_reconciliation', 'Medication reconciliation complete', 'pharmacy', 1, 45],
+          ['billing_clearance', 'Billing and insurance cleared', 'billing', 2, 90],
+          ['lab_results', 'Final lab results reviewed', 'clinical', 3, 120],
+          ['transport_booking', 'Transport booked', 'transport', 4, 180],
+        ] as const;
+        for (const [type, title, role, priority, minutes] of defaults) {
+          await client.query(
+            `INSERT INTO dischargeloop.task
+               (id, discharge_id, type, title, owner_role, status, priority, blocking, due_at)
+             VALUES ($1, $2, $3, $4, $5, 'OPEN', $6, true, now() + ($7 || ' minutes')::interval)`,
+            [newId(), input.dischargeId, type, title, role, priority, String(minutes)],
+          );
+        }
+      }
+
+      if (input.targetState === 'DEPARTED') {
+        const bedResult = await client.query(
+          `SELECT bed_id FROM dischargeloop.bed_assignment
+           WHERE encounter_id = $1 AND kind = 'OCCUPANCY' AND state = 'ACTIVE'
+           ORDER BY starts_at DESC LIMIT 1`,
+          [discharge.encounter_id],
+        );
+        const bedId = bedResult.rows[0]?.bed_id;
+        if (bedId) {
+          await client.query(
+            `UPDATE dischargeloop.bed_assignment
+             SET state = 'ENDED', ended_at = $2
+             WHERE encounter_id = $1 AND kind = 'OCCUPANCY' AND state = 'ACTIVE'`,
+            [discharge.encounter_id, now],
+          );
+          await client.query(
+            `INSERT INTO dischargeloop.cleaning (id, bed_id, status)
+             SELECT $1, $2, 'OPEN'
+             WHERE NOT EXISTS (SELECT 1 FROM dischargeloop.cleaning WHERE bed_id = $2 AND status <> 'VERIFIED')`,
+            [newId(), bedId],
+          );
+        }
+      }
+
+      await client.query(
+        `INSERT INTO dischargeloop.audit_event
+           (id, actor_id, actor_role, action, entity_type, entity_id, before_state, after_state,
+            reason_code, correlation_id, request_id)
+         VALUES ($1, $2, $3, $4, 'discharge', $5, $6::jsonb, $7::jsonb, $8, $9, $9)`,
+        [
+          newId(),
+          actor.id,
+          actor.roles[0] ?? 'unknown',
+          `discharge.${input.targetState.toLowerCase()}`,
+          input.dischargeId,
+          JSON.stringify({ state: discharge.state, version: discharge.version }),
+          JSON.stringify({ state: input.targetState, version: discharge.version + 1 }),
+          input.reasonCode ?? 'DISCHARGE_PENDING',
+          input.correlationId ?? 'unknown',
+        ],
+      );
 
       // Fire outbox event
       const eventType = input.targetState === 'CANCELLED_REVERSED' ? 'DischargeReversed' : `Discharge${input.targetState}`;
@@ -187,7 +257,7 @@ export class DischargeService {
         dischargeId: input.dischargeId,
         encounterId: discharge.encounter_id,
         state: input.targetState,
-        version: discharge.version_id + 1,
+        version: discharge.version + 1,
       };
       await this.completeIdempotent(client, actor.id, input.idempotencyKey, 200, body);
       return { status: 200, body };

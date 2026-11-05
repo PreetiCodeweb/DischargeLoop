@@ -233,6 +233,7 @@ export class BedsController {
   }
 
   private reason<const T extends BedReasonCode>(value: unknown, expected: T): T {
+    if (value === undefined) return expected;
     if (value !== expected) throw new DomainError('INVALID_REASON_CODE', `reasonCode must be ${expected}`, 400);
     return expected;
   }
