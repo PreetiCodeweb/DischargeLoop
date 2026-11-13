@@ -2,75 +2,72 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  api:
+  backend:
     runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: dischargeloop
+          POSTGRES_USER: postgres
           POSTGRES_PASSWORD: ci-postgres-password
           POSTGRES_DB: dischargeloop
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U dischargeloop -d dischargeloop"
+          --health-cmd "pg_isready -U postgres -d dischargeloop"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-    defaults:
-      run:
-        working-directory: apps/api
+    env:
+      # CI-only throwaway credentials for the ephemeral service container.
+      PGHOST: 127.0.0.1
+      PGPASSWORD: ci-postgres-password
+      POSTGRES_USER: postgres
+      POSTGRES_DB: dischargeloop
+      APP_DB_PASSWORD: ci-app-password
+      MIGRATION_DB_PASSWORD: ci-migration-password
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: apps/api/package-lock.json
-      - run: npm ci
-      - run: npm audit --audit-level=high
-      - name: Create least-privilege database roles
-        run: |
-          PGPASSWORD=ci-postgres-password psql -h 127.0.0.1 -U dischargeloop -d dischargeloop <<'SQL'
-          CREATE ROLE dischargeloop_app LOGIN PASSWORD 'ci-app-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-          CREATE ROLE dischargeloop_migrator LOGIN PASSWORD 'ci-migration-password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT;
-          CREATE SCHEMA dischargeloop AUTHORIZATION dischargeloop_migrator;
-          GRANT CONNECT ON DATABASE dischargeloop TO dischargeloop_app, dischargeloop_migrator;
-          GRANT USAGE ON SCHEMA dischargeloop TO dischargeloop_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE dischargeloop_migrator IN SCHEMA dischargeloop GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO dischargeloop_app;
-          ALTER DEFAULT PRIVILEGES FOR ROLE dischargeloop_migrator IN SCHEMA dischargeloop GRANT USAGE, SELECT ON SEQUENCES TO dischargeloop_app;
-          SQL
-      - name: Apply schema
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r backend/requirements.txt
+      - name: Create least-privilege roles, schemas and extensions
+        run: sh ops/postgres-init/001-roles.sh
+      - name: Apply migrations (twice, to prove they are idempotent)
+        working-directory: backend
         env:
-          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
-        run: npm run migrate
-      - name: Verify empty-schema rollback and reapply
+          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop
+          SEED_DEMO: "true"
+        run: python -m app.db_migrate && python -m app.db_migrate
+      - name: Run backend tests as the least-privilege app role
+        working-directory: backend
         env:
-          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
-        run: npm run migrate:down && npm run migrate
-      - name: Run API tests
-        env:
-          DATABASE_URL: postgresql://dischargeloop_app:ci-app-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
-          MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:ci-migration-password@127.0.0.1:5432/dischargeloop?options=-csearch_path%3Ddischargeloop
-        run: npm test
-      - run: npm run build
+          DL_TEST_DATABASE_URL: postgresql+psycopg://dischargeloop_app:ci-app-password@127.0.0.1:5432/dischargeloop
+        run: python -m pytest -q tests
 
-  web:
+  frontend:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: apps/web
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: 22
           cache: npm
-          cache-dependency-path: apps/web/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
       - run: npm ci
-      - run: npm audit --audit-level=high
+      - run: npx tsc --noEmit
+      - run: npx eslint . --max-warnings=0
       - run: npm run build

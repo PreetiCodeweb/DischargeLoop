@@ -1,0 +1,17 @@
+# Runtime-only frontend image for networks that block registry.npmjs.org.
+# The Next.js standalone build is produced on the host by scripts/build-frontend-prebuilt.sh
+# (using the already-installed node_modules), so this build needs no npm registry access.
+# Default/unrestricted networks should use ./Dockerfile, which builds everything inside Docker.
+FROM node:22-alpine
+WORKDIR /app
+# HOSTNAME=0.0.0.0: Docker sets HOSTNAME to the container ID, which would make the
+# standalone server bind only to the container IP and break the loopback healthcheck.
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
+COPY --chown=node:node .prebuilt/standalone ./
+COPY --chown=node:node .prebuilt/static ./.next/static
+COPY --chown=node:node .prebuilt/public ./public
+USER node
+EXPOSE 3000
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=6 \
+  CMD wget -q --spider http://127.0.0.1:3000/ || exit 1
+CMD ["node", "server.js"]

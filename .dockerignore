@@ -1,0 +1,19 @@
+# Root build context is used only by backend/Dockerfile; ship backend/app, backend/requirements.txt and db/ only.
+.git
+.github
+frontend
+docs
+ops
+scripts
+*.md
+image.png
+plans_chats
+.env
+.env.*
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+backend/tests
+backend/.venv
+backend/data
+.DS_Store
