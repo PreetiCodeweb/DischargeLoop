@@ -1,0 +1,174 @@
+# DischargeLoop + MedSync Command Center: PostgreSQL, migrations, API, worker and web, fully containerized.
+#
+# Isolation from other projects on the same machine:
+#   - `name: dischargeloop` namespaces every container, network and volume.
+#   - Host ports bind to 127.0.0.1 only and are configurable via .env (DL_*_PORT); defaults avoid the MedSync stack.
+#   - Variables are DL_-prefixed so shell exports from other projects cannot leak in.
+#
+# Usage: ./scripts/init-env.sh   (creates .env from docker.env.example with generated secrets; never committed)
+#        ./scripts/build-frontend-prebuilt.sh  (only when registry.npmjs.org is blocked)
+#        docker compose up -d --build
+name: dischargeloop
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs:
+    - /tmp
+
+x-backend-env: &backend-env
+  ENVIRONMENT: ${DL_ENVIRONMENT:-development}
+  DATABASE_URL: postgresql+psycopg://dischargeloop_app:${DL_APP_DB_PASSWORD:?Set DL_APP_DB_PASSWORD in .env}@postgres:5432/dischargeloop
+  SECRET_KEY: ${DL_SECRET_KEY:?Set DL_SECRET_KEY in .env}
+  HOME: /tmp
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      POSTGRES_DB: dischargeloop
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${DL_POSTGRES_PASSWORD:?Set DL_POSTGRES_PASSWORD in .env}
+      # Consumed once by ops/postgres-init/001-roles.sh to create the least-privilege roles.
+      APP_DB_PASSWORD: ${DL_APP_DB_PASSWORD:?Set DL_APP_DB_PASSWORD in .env}
+      MIGRATION_DB_PASSWORD: ${DL_MIGRATION_DB_PASSWORD:?Set DL_MIGRATION_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${DL_DB_PORT:-5434}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./ops/postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d dischargeloop"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+  # One-shot: applies db/medsync + db/migrations (+ synthetic seeds when DL_SEED_DEMO=true) as the migrator role.
+  migrate:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: dischargeloop-backend:local
+    command: ["python", "-m", "app.db_migrate"]
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://dischargeloop_migrator:${DL_MIGRATION_DB_PASSWORD:?Set DL_MIGRATION_DB_PASSWORD in .env}@postgres:5432/dischargeloop
+      SEED_DEMO: ${DL_SEED_DEMO:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  backend:
+    <<: *hardening
+    image: dischargeloop-backend:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DL_API_PORT:-8001}:8000"
+    environment:
+      <<: *backend-env
+      CORS_ORIGINS: http://localhost:${DL_HTTP_PORT:-3001},http://127.0.0.1:${DL_HTTP_PORT:-3001}
+      FRONTEND_URL: http://localhost:${DL_HTTP_PORT:-3001}
+      AUTO_SEED: "true"
+      ADMIN_USERNAME: ${DL_ADMIN_USERNAME:-roselyn_yu}
+      ADMIN_EMAIL: ${DL_ADMIN_EMAIL:-roselyn_yu@northstar.example}
+      ADMIN_PASSWORD: ${DL_ADMIN_PASSWORD:?Set DL_ADMIN_PASSWORD in .env}
+      DEMO_USER_PASSWORD: ${DL_DEMO_USER_PASSWORD:-}
+      HL7_INGEST_TOKEN: ${DL_HL7_INGEST_TOKEN:?Set DL_HL7_INGEST_TOKEN in .env}
+    volumes:
+      - model_artifacts:/app/data
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 1536m
+
+  # Escalations (feature 4) and reservation expiry; safe to run more than one replica (SKIP LOCKED).
+  worker:
+    <<: *hardening
+    image: dischargeloop-backend:local
+    restart: unless-stopped
+    command: ["python", "-m", "app.discharge.worker"]
+    healthcheck:
+      disable: true
+    environment:
+      <<: *backend-env
+      WORKER_INTERVAL_SECONDS: ${DL_WORKER_INTERVAL_SECONDS:-60}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  # Direct HL7 v2 feed (Epic Bridges / interface engine) over MLLP; MLLPS when DL_MLLP_TLS_* is configured.
+  mllp:
+    <<: *hardening
+    image: dischargeloop-backend:local
+    restart: unless-stopped
+    command: ["python", "-m", "app.discharge.mllp"]
+    ports:
+      - "127.0.0.1:${DL_MLLP_PORT:-2576}:2575"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 2575), 3).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    environment:
+      <<: *backend-env
+      MLLP_PORT: "2575"
+      # Production: the hospital VPN subnet(s) only. Locally: loopback + Docker bridge networks.
+      MLLP_ALLOWED_CIDRS: ${DL_MLLP_ALLOWED_CIDRS:-127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  frontend:
+    <<: *hardening
+    build:
+      context: ./frontend
+      # Dockerfile.prebuilt packages a host-built standalone output (scripts/build-frontend-prebuilt.sh)
+      # for networks that block registry.npmjs.org; Dockerfile builds everything inside Docker.
+      dockerfile: ${DL_FRONTEND_DOCKERFILE:-Dockerfile}
+      args:
+        BACKEND_URL: http://backend:8000
+    image: dischargeloop-frontend:local
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${DL_HTTP_PORT:-3001}:3000"
+    tmpfs:
+      - /tmp
+      - /app/.next/cache:uid=1000,gid=1000
+    depends_on:
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+
+volumes:
+  pgdata:
+  model_artifacts:

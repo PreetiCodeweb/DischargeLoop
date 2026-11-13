@@ -1,0 +1,14 @@
+# Host build artifacts must never overwrite the Linux node_modules / build output inside the image.
+node_modules
+.next
+out
+*.tsbuildinfo
+npm-debug.log*
+
+# Local secrets and environment overrides
+.env
+.env.*
+
+# VCS / editor / OS noise
+.git
+.DS_Store

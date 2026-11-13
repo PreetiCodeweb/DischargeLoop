@@ -85,8 +85,10 @@ outputs/
 ############################
 # Docker
 ############################
-.dockerignore
+# .dockerignore files are tracked on purpose: they keep .env and host artifacts out of images.
 docker-compose.override.yml
+# Host-built frontend staged for frontend/Dockerfile.prebuilt
+frontend/.prebuilt/
 
 ############################
 # Testing / Coverage
